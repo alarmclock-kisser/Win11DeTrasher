@@ -49,6 +49,7 @@ source repositories, Windows temp files, and other space hogs.
 | UI technology | Windows Forms (WinForms) |
 | OS | Windows 11 (also compatible with Windows 10) |
 | Architecture | 64-bit (x64) |
+| Distribution | Compressed, self-contained single-file executable; no .NET runtime/SDK required |
 
 ## 3. Core Functionality
 

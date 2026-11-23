@@ -801,10 +801,10 @@ covered manually:
 
 ```bash
 # From the repository root
-dotnet build Win11DeTrasher.slnx -c Release -r win-x64
+dotnet build Win11DeTrasher.slnx -c Release
 
 # Or build the main project only
-dotnet build Win11DeTrasher/Win11DeTrasher.csproj -c Release -r win-x64
+dotnet build Win11DeTrasher/Win11DeTrasher.csproj -c Release
 ```
 
 ### 16.3 Run
@@ -825,11 +825,25 @@ dotnet test Win11DeTrasher.Tests/Win11DeTrasher.Tests.csproj -c Release -r win-x
 ### 16.5 Publish
 
 ```bash
-dotnet publish Win11DeTrasher/Win11DeTrasher.csproj -c Release -r win-x64 --self-contained true -o publish/
+dotnet publish Win11DeTrasher/Win11DeTrasher.csproj -c Release -r win-x64 \
+  --self-contained true -p:PublishSingleFile=true \
+  -p:IncludeNativeLibrariesForSelfExtract=true \
+  -p:EnableCompressionInSingleFile=true -o publish/
 ```
 
-This produces a self-contained deployment in `publish/` — no
-.NET runtime installation needed on the target machine.
+This produces `publish/Win11DeTrasher.exe`, a compressed, self-contained
+single-file x64 application. Users do not need the .NET runtime or SDK,
+and no sidecar application DLLs are required. Native libraries are bundled
+and extracted to a temporary directory when the application starts.
+
+### 16.6 Continuous Integration and GitHub Releases
+
+`.github/workflows/release.yml` runs on every push to `master` and can
+also be started manually. It builds the Release configuration, runs the
+MSTest suite, publishes the self-contained single-file executable, and
+attaches it to a GitHub Release. Release tags are numbered
+`v1.0.<run number>` (for example, `v1.0.1`); the attached download is
+`Win11DeTrasher.exe`.
 
 ## 17. Design Decisions and Trade-offs
 
