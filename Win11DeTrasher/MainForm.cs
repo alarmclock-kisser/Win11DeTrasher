@@ -36,6 +36,7 @@ public partial class MainForm : Form
 
     // Progress UI state
     private bool _isScanRunning;
+    private bool _isClosing;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="MainForm"/> class.
@@ -124,10 +125,18 @@ public partial class MainForm : Form
         try
         {
             await this.PopulateDrivesAsync();
+            if (this.IsDisposed || this._isClosing)
+            {
+                return;
+            }
         }
         catch (Exception ex)
         {
             this._logger.Log(ex, preText: "Drive discovery failed during application startup");
+            if (this.IsDisposed || this._isClosing)
+            {
+                return;
+            }
             this._statusLabel.Text = $"Could not load drives: {ex.Message}";
         }
 
@@ -146,12 +155,20 @@ public partial class MainForm : Form
             this._statusLabel.Text = "Loading system information…";
             this._logger.LogInfo("Loading system information.");
             await this.PopulateSystemInfoAsync();
+            if (this.IsDisposed || this._isClosing)
+            {
+                return;
+            }
             this._statusLabel.Text = "Ready. Select a drive or folder, then start a scan.";
             this._logger.LogSuccess("System information loaded.");
         }
         catch (Exception ex)
         {
             this._logger.Log(ex, preText: "Loading system information failed");
+            if (this.IsDisposed || this._isClosing)
+            {
+                return;
+            }
             // A system-information failure must not prevent scanning or close the form.
             this._statusLabel.Text = $"System information unavailable: {ex.Message}";
         }
@@ -195,6 +212,9 @@ public partial class MainForm : Form
 
     private void OnFormClosing(object? sender, FormClosingEventArgs e)
     {
+        this._isClosing = true;
+        this._progressTracker.ProgressUpdated -= this.OnProgressUpdated;
+
         // Cancel any running scan
         if (this._isScanRunning)
         {
@@ -212,9 +232,18 @@ public partial class MainForm : Form
 
     private void OnProgressUpdated(ScanProgress progress)
     {
-        // Must be marshaled to the UI thread
-        this.Invoke(() =>
+        if (this.IsDisposed || this.Disposing || this._isClosing || !this.IsHandleCreated)
         {
+            return;
+        }
+
+        void UpdateProgressControls()
+        {
+            if (this.IsDisposed || this.Disposing || this._isClosing)
+            {
+                return;
+            }
+
             this._progressBar.Value = (int)Math.Clamp(progress.ProgressPercent, 0, 100);
             this._elapsedLabel.Text = $"Elapsed: {this.FormatTimeSpan(progress.ElapsedSeconds)}";
             this._etaLabel.Text = progress.IsCompleted
@@ -226,28 +255,29 @@ public partial class MainForm : Form
                         : "ETA: calculating...";
             this._fileCountLabel.Text = $"Files: {progress.ProcessedFiles:N0} / {progress.TotalFiles:N0}";
             this._errorCountLabel.Text = $"Errors: {progress.ErrorCount:N0}";
+        }
 
-            if (progress.IsCompleted)
+        try
+        {
+            if (this.InvokeRequired)
             {
-                this._statusLabel.Text = "Scan complete.";
-                this._scanButton.Enabled = true;
-                this._cancelButton.Enabled = false;
-                this._workerControl.IsEditable = true;
-                this._isScanRunning = false;
-
-                this.PopulateResults();
+                // Never block a scanner worker waiting for the UI thread. The UI
+                // may be busy binding a large result set or closing the form.
+                this.BeginInvoke((Action)UpdateProgressControls);
             }
-            else if (progress.IsCancelled)
+            else
             {
-                this._statusLabel.Text = "Scan cancelled.";
-                this._scanButton.Enabled = true;
-                this._cancelButton.Enabled = false;
-                this._workerControl.IsEditable = true;
-                this._isScanRunning = false;
-
-                this.PopulateResults();
+                UpdateProgressControls();
             }
-        });
+        }
+        catch (ObjectDisposedException)
+        {
+            // Ignore late progress events after the form has closed.
+        }
+        catch (InvalidOperationException)
+        {
+            // The form handle can be destroyed while a worker is reporting progress.
+        }
     }
 
     private string FormatTimeSpan(double seconds)
@@ -340,6 +370,11 @@ public partial class MainForm : Form
         try
         {
             var results = await this._scanner.ScanAsync(rootPath, filterOptions, scanCts.Token);
+            if (this.IsDisposed || this.Disposing)
+            {
+                return;
+            }
+
             this._allResults = results.ToList();
 
             if (scanCts.IsCancellationRequested || this._progressTracker.CurrentProgress.IsCancelled)
@@ -384,20 +419,29 @@ public partial class MainForm : Form
         }
         catch (OperationCanceledException)
         {
-            this._statusLabel.Text = "Scan cancelled.";
             this._logger.LogWarning($"Scan cancelled while traversing '{rootPath}'.");
+            if (!this.IsDisposed && !this.Disposing)
+            {
+                this._statusLabel.Text = "Scan cancelled.";
+            }
         }
         catch (Exception ex)
         {
-            this._statusLabel.Text = $"Scan error: {ex.Message}";
             this._logger.Log(ex, preText: $"Scan failed for '{rootPath}'");
-            MessageBox.Show(this, ex.Message, "Scan Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            if (!this.IsDisposed && !this.Disposing)
+            {
+                this._statusLabel.Text = $"Scan error: {ex.Message}";
+                MessageBox.Show(this, ex.Message, "Scan Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
         finally
         {
             this._isScanRunning = false;
-            this._scanButton.Enabled = true;
-            this._cancelButton.Enabled = false;
+            if (!this.IsDisposed && !this.Disposing)
+            {
+                this._scanButton.Enabled = true;
+                this._cancelButton.Enabled = false;
+            }
             if (ReferenceEquals(this._scanCts, scanCts))
             {
                 this._scanCts = null;
@@ -599,17 +643,27 @@ public partial class MainForm : Form
         try
         {
             await this.PopulateSystemInfoAsync();
+            if (this.IsDisposed || this._isClosing)
+            {
+                return;
+            }
             this._statusLabel.Text = "System information refreshed.";
             this._logger.LogSuccess("System information refreshed.");
         }
         catch (Exception ex)
         {
             this._logger.Log(ex, preText: "Refreshing system information failed");
-            this._statusLabel.Text = $"System information unavailable: {ex.Message}";
+            if (!this.IsDisposed && !this._isClosing)
+            {
+                this._statusLabel.Text = $"System information unavailable: {ex.Message}";
+            }
         }
         finally
         {
-            this._refreshSystemInfoButton.Enabled = true;
+            if (!this.IsDisposed && !this.Disposing && !this._isClosing)
+            {
+                this._refreshSystemInfoButton.Enabled = true;
+            }
         }
     }
 

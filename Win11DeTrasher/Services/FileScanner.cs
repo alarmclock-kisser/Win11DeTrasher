@@ -182,7 +182,7 @@ public class FileScanner : IFileScanner, IDisposable
                     workerTasks = this._workerTasks?.ToArray() ?? [];
                 }
 
-                await Task.WhenAll(workerTasks);
+                await Task.WhenAll(workerTasks).ConfigureAwait(false);
 
                 lock (this._sync)
                 {
@@ -898,12 +898,19 @@ public class FileScanner : IFileScanner, IDisposable
 
     public void Dispose()
     {
-        BlockingCollection<string>? queueToDispose;
-        Task[]? tasksToWait;
+        BlockingCollection<string>? activeQueue;
+        Task[] tasksToWait;
 
         lock (this._sync)
         {
-            // Cancel any in-flight scan so workers exit promptly.
+            if (!this._isScanning)
+            {
+                return;
+            }
+
+            // Cancel workers but keep the queue and task list alive until every
+            // worker has exited. AwaitCompletionAsync owns final cleanup; clearing
+            // these fields here races with ProcessPath and causes null references.
             // Do NOT dispose the CTS here — worker threads may still be
             // registered on it, and disposing an in-use CTS can cause
             // a native crash. The CTS will be garbage collected.
@@ -912,18 +919,24 @@ public class FileScanner : IFileScanner, IDisposable
                 this._cts.Cancel();
             }
 
-            queueToDispose = this._workQueue;
-            tasksToWait = this._workerTasks?.ToArray();
-
-            this._isScanning = false;
-            this._workerTasks = null;
-            this._workQueue = null;
-            // Intentionally do not null out _cts or dispose it.
+            activeQueue = this._workQueue;
+            tasksToWait = this._workerTasks?.ToArray() ?? [];
         }
 
-        // Wait for workers to finish (they will exit once the queue is
-        // completed and cancelled). Use a timeout to avoid blocking forever.
-        if (tasksToWait is { Length: > 0 })
+        try
+        {
+            activeQueue?.CompleteAdding();
+        }
+        catch (ObjectDisposedException)
+        {
+            // AwaitCompletionAsync may have completed cleanup concurrently.
+        }
+        catch (InvalidOperationException)
+        {
+            // The queue was already completed by the pending-directory tracker.
+        }
+
+        if (tasksToWait.Length > 0)
         {
             try
             {
@@ -931,17 +944,8 @@ public class FileScanner : IFileScanner, IDisposable
             }
             catch
             {
-                // Some workers may not have finished — that's acceptable
+                // AwaitCompletionAsync continues cleanup when any slow I/O returns.
             }
-        }
-
-        try
-        {
-            queueToDispose?.Dispose();
-        }
-        catch (ObjectDisposedException)
-        {
-            // Already disposed
         }
     }
 }

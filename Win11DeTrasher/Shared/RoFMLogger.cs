@@ -96,7 +96,7 @@ namespace Win11DeTrasher.Shared
         public bool CreateLogFile { get; set; } = false;
 
         /// <summary>
-        /// The maximum number of previous log files to retain.
+        /// The maximum number of rolling log files to retain, including the current file.
         /// </summary>
         public int MaxLogFiles { get; set; } = 32;
 
@@ -478,18 +478,14 @@ namespace Win11DeTrasher.Shared
                     Directory.CreateDirectory(this.Settings.LogDirectory);
                 }
 
-                if (options.MaxLogFiles == 0)
+                if (options.MaxLogFiles >= 0)
                 {
-                    Directory.Delete(this.Settings.LogDirectory, true);
-                    Directory.CreateDirectory(this.Settings.LogDirectory);
-                }
-                else if (options.MaxLogFiles >= 1)
-                {
+                    int previousFilesToKeep = Math.Max(0, options.MaxLogFiles - (options.CreateLogFile ? 1 : 0));
                     var existingLogs = Directory.GetFiles(this.Settings.LogDirectory, "log_*.txt")
                         .Select(path => new FileInfo(path))
                         .OrderByDescending(fi => fi.CreationTime)
                         .ToList();
-                    foreach (var oldLog in existingLogs.Skip(options.MaxLogFiles))
+                    foreach (var oldLog in existingLogs.Skip(previousFilesToKeep))
                     {
                         try
                         {

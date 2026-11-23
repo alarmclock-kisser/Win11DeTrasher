@@ -196,14 +196,16 @@ The live log records scan starts and finishes, worker-count changes, skipped
 inaccessible paths, errors, exceptions, and cancellation requests. New entries
 appear at the bottom while you are viewing the latest entries.
 
+- If `appsettings.json` is missing beside the EXE, the application creates it
+  automatically from its embedded defaults.
 - Click **Copy log** to copy the complete session log.
 - Double-click an entry or right-click and choose **Copy selected line(s)** to
   copy selected entries. The context menu also offers **Copy all log entries**
   and **Clear log**.
 - A timestamped text log is saved in the configured `LoggerSettings.LogDirectory`
-  from `appsettings.json`. By default this is a `Logs` folder beside the EXE.
-  Relative paths are resolved beside the application; if that location is not
-  writable, the app falls back to `%LOCALAPPDATA%\Win11DeTrasher\Logs`.
+  from `appsettings.json`. By default the latest 16 files are kept under
+  `%LOCALAPPDATA%\Win11DeTrasher\Logs`. Relative paths are resolved beside the
+  EXE; if a configured location is not writable, the app falls back to LocalAppData.
 
 ## 4. Scanning a Drive
 

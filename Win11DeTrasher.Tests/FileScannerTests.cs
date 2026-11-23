@@ -265,6 +265,25 @@ public sealed class FileScannerTests : TestBase
     }
 
     [TestMethod]
+    public async Task DisposeDuringScan_ShouldNotDisposeQueueWhileWorkersAreUsingIt()
+    {
+        for (var index = 0; index < 512; index++)
+        {
+            Directory.CreateDirectory(Path.Combine(this._root, $"close-{index:D3}"));
+        }
+
+        using var cancellation = new CancellationTokenSource();
+        var scanTask = this._scanner.ScanAsync(this._root, new ScanFilterOptions(), cancellation.Token);
+
+        cancellation.Cancel();
+        this._scanner.Dispose();
+        var results = await scanTask.WaitAsync(TimeSpan.FromSeconds(10));
+
+        results.ShouldNotBeNull();
+        this._scanner.IsScanning.ShouldBeFalse();
+    }
+
+    [TestMethod]
     public async Task ScanAsync_Cancellation_ShouldStopScan()
     {
         var cts = new CancellationTokenSource();

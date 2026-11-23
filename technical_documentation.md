@@ -685,6 +685,9 @@ manually (simpler for a small, fixed set of categories).
 `IRollingFileMemoryLogger`, and starts its rolling-file writer. Relative
 `LogDirectory` values are resolved beside the executable; if the directory
 cannot be created, the logger falls back to `%LOCALAPPDATA%\Win11DeTrasher\Logs`.
+If the file is absent, `Program` writes it from the embedded JSON template.
+The generated default keeps the latest 16 log files in LocalAppData; older
+unversioned `Logs` defaults are migrated in place to that directory.
 The logger source
 is bundled in `Shared/RoFMLogger.cs` with its helper types and enums, so it
 adds no external package dependency. `MainForm` binds `listBox_log` directly

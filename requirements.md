@@ -68,8 +68,9 @@ source repositories, Windows temp files, and other space hogs.
 - **Diagnostics log:** Live, timestamped log with scan start/completion,
   worker-count changes, skipped-path warnings, exceptions, cleanup errors,
   and cancellation requests. Uses `IRollingFileMemoryLogger`; `LoggerSettings`
-  in `appsettings.json` controls file path/retention. Relative log paths are
-  resolved beside the executable, with a `%LOCALAPPDATA%` fallback if needed.
+  in `appsettings.json` controls file path/retention (default: last 16 files
+  under `%LOCALAPPDATA%\Win11DeTrasher\Logs`). Relative paths are resolved
+  beside the executable; the app falls back to LocalAppData if needed.
 
 ## 4. User Interface
 
