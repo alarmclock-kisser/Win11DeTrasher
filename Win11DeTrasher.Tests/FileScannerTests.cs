@@ -77,6 +77,62 @@ public sealed class FileScannerTests : TestBase
     }
 
     [TestMethod]
+    public async Task ScanAsync_HighWorkerCountAndMinimumSize_ShouldFinishAfterAllDirectoriesAreVisited()
+    {
+        const int bulkDirectoryCount = 96;
+        for (var index = 0; index < bulkDirectoryCount; index++)
+        {
+            var directory = Path.Combine(this._root, $"bulk-{index:D3}");
+            Directory.CreateDirectory(directory);
+            await File.WriteAllBytesAsync(Path.Combine(directory, "large.bin"), new byte[4096]);
+        }
+
+        this._scanner.WorkerCount = Math.Min(16, Environment.ProcessorCount);
+
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        var results = await this._scanner.ScanAsync(
+            this._root,
+            new ScanFilterOptions { MinFileSizeBytes = 4096 },
+            timeout.Token).WaitAsync(TimeSpan.FromSeconds(25));
+
+        results.Count(result => !result.IsDirectory).ShouldBe(bulkDirectoryCount);
+        results.Count(result => result.IsDirectory).ShouldBe(bulkDirectoryCount + 4);
+        this._progressTracker.CurrentProgress.IsCompleted.ShouldBeTrue();
+        this._progressTracker.CurrentProgress.IsCancelled.ShouldBeFalse();
+        this._progressTracker.CurrentProgress.TotalFiles.ShouldBe(bulkDirectoryCount);
+        this._progressTracker.CurrentProgress.ProcessedFiles.ShouldBe(bulkDirectoryCount);
+    }
+
+    [TestMethod]
+    public async Task ScanAsync_ChangingWorkerCountDuringTraversal_ShouldNotLoseResults()
+    {
+        const int bulkDirectoryCount = 256;
+        for (var index = 0; index < bulkDirectoryCount; index++)
+        {
+            var directory = Path.Combine(this._root, $"resize-{index:D3}");
+            Directory.CreateDirectory(directory);
+            await File.WriteAllBytesAsync(Path.Combine(directory, "large.bin"), new byte[4096]);
+        }
+
+        this._scanner.WorkerCount = Math.Min(2, Environment.ProcessorCount);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        var scanTask = this._scanner.ScanAsync(
+            this._root,
+            new ScanFilterOptions { MinFileSizeBytes = 4096 },
+            timeout.Token);
+
+        await Task.Delay(10);
+        this._scanner.WorkerCount = Math.Min(16, Environment.ProcessorCount);
+        await Task.Delay(10);
+        this._scanner.WorkerCount = Math.Min(6, Environment.ProcessorCount);
+
+        var results = await scanTask.WaitAsync(TimeSpan.FromSeconds(25));
+        results.Count(result => !result.IsDirectory).ShouldBe(bulkDirectoryCount);
+        this._progressTracker.CurrentProgress.IsCompleted.ShouldBeTrue();
+        this._progressTracker.CurrentProgress.IsCancelled.ShouldBeFalse();
+    }
+
+    [TestMethod]
     public async Task ScanAsync_IncludeExtensions_ShouldOnlyReturnMatchingFiles()
     {
         var filter = new ScanFilterOptions
@@ -172,6 +228,18 @@ public sealed class FileScannerTests : TestBase
         files.Count.ShouldBe(4);
 
         files.ShouldNotContain(f => f.Name == "file4.txt");
+    }
+
+    [TestMethod]
+    public async Task ScanAsync_MaxDepthZero_ShouldOnlyScanRootDirectory()
+    {
+        var results = await this._scanner.ScanAsync(
+            this._root,
+            new ScanFilterOptions { MaxDepth = 0 },
+            CancellationToken.None);
+
+        results.Count(result => !result.IsDirectory).ShouldBe(2);
+        results.Count(result => result.IsDirectory).ShouldBe(1);
     }
 
     [TestMethod]

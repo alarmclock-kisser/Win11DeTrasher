@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.IO;
+using Win11DeTrasher.Shared;
 using Win11DeTrasher.Models;
 using Win11DeTrasher.Utils;
 
@@ -19,6 +20,7 @@ namespace Win11DeTrasher.Services;
 public class FileScanner : IFileScanner, IDisposable
 {
     private readonly IProgressTracker _progressTracker;
+    private readonly IRollingFileMemoryLogger? _logger;
     private readonly object _sync = new();
 
     private BlockingCollection<string>? _workQueue;
@@ -39,10 +41,13 @@ public class FileScanner : IFileScanner, IDisposable
     // can be called safely.
     private int _pendingDirectoryCount;
     private bool _isCompleted;
+    private bool _isFinalizing;
+    private int _scanErrorCount;
 
-    public FileScanner(IProgressTracker progressTracker)
+    public FileScanner(IProgressTracker progressTracker, IRollingFileMemoryLogger? logger = null)
     {
         this._progressTracker = progressTracker ?? throw new ArgumentNullException(nameof(progressTracker));
+        this._logger = logger;
         this._targetWorkerCount = Math.Max(1, Math.Min(4, Environment.ProcessorCount));
     }
 
@@ -65,7 +70,11 @@ public class FileScanner : IFileScanner, IDisposable
                 this._targetWorkerCount = clamped;
 
                 // If a scan is running, adapt the worker pool on-the-fly
-                if (this._isScanning && this._workerTasks != null && this._cts != null)
+                if (this._isScanning
+                    && !this._isCompleted
+                    && !this._isFinalizing
+                    && this._cts is { IsCancellationRequested: false }
+                    && this._workerTasks != null)
                 {
                     this.AdaptWorkerPool(clamped);
                 }
@@ -115,8 +124,12 @@ public class FileScanner : IFileScanner, IDisposable
             this._cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             this._isScanning = true;
             this._activeWorkerCount = 0;
-            this._pendingDirectoryCount = 0;
+            this._pendingDirectoryCount = 1;
             this._isCompleted = false;
+            this._isFinalizing = false;
+            this._scanErrorCount = 0;
+
+            this._progressTracker.Start();
 
             // Start initial worker pool
             this._workerTasks = [];
@@ -125,15 +138,25 @@ public class FileScanner : IFileScanner, IDisposable
                 this.StartWorker();
             }
 
-            this._progressTracker.Start();
         }
 
-        // Enqueue the root path and set the initial pending directory count to 1.
-        // The root is a directory that will be processed; when it's done,
-        // its subdirectories will be enqueued (incrementing the count) and
-        // the count will be decremented (for the root itself).
-        this._workQueue!.Add(rootPath);
-        Interlocked.Increment(ref this._pendingDirectoryCount);
+        // The root is counted before it becomes visible to workers. Incrementing
+        // after Add races a fast worker, which could decrement the counter first
+        // and make the scan appear complete before traversal has started.
+        try
+        {
+            this._workQueue!.Add(rootPath, this._cts!.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            this.MarkQueueCompleteAfterRootEnqueueFailure();
+        }
+        catch (Exception ex)
+        {
+            this._logger?.Log(ex, preText: $"Could not enqueue scan root '{rootPath}'");
+            this._progressTracker.ReportError();
+            this.MarkQueueCompleteAfterRootEnqueueFailure();
+        }
 
         return this.AwaitCompletionAsync();
     }
@@ -151,16 +174,50 @@ public class FileScanner : IFileScanner, IDisposable
             // zero (see OnDirectoryProcessed) — this happens AFTER all directories
             // have been fully processed (all subdirectories enqueued), so no
             // subdirectory will be lost.
-            await Task.WhenAll(this._workerTasks!);
+            while (true)
+            {
+                Task[] workerTasks;
+                lock (this._sync)
+                {
+                    workerTasks = this._workerTasks?.ToArray() ?? [];
+                }
+
+                await Task.WhenAll(workerTasks);
+
+                lock (this._sync)
+                {
+                    if (this._workerTasks != null && this._workerTasks.Count > workerTasks.Length)
+                    {
+                        continue;
+                    }
+
+                    // Stop accepting worker-count changes before deciding that
+                    // the complete worker-task set has finished.
+                    this._isFinalizing = true;
+                    break;
+                }
+            }
+
+            isCancelled = this._cts?.IsCancellationRequested == true;
+            if (!isCancelled && !this._isCompleted)
+            {
+                this._logger?.LogError(
+                    $"Worker pool stopped with {Volatile.Read(ref this._pendingDirectoryCount):N0} directory item(s) pending; marking the scan incomplete.");
+                isCancelled = true;
+            }
+            if (isCancelled)
+            {
+                this._progressTracker.Cancel();
+            }
         }
         catch (OperationCanceledException)
         {
             isCancelled = true;
             this._progressTracker.Cancel();
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            // If any worker threw an unhandled exception, treat as cancellation
+            this._logger?.Log(ex, preText: $"Worker pool failed while scanning '{this._rootPath}'");
             isCancelled = true;
             this._progressTracker.Cancel();
         }
@@ -176,9 +233,21 @@ public class FileScanner : IFileScanner, IDisposable
         if (!isCancelled)
         {
             this._progressTracker.Complete();
+            this._logger?.LogSuccess($"Scan workers completed. Traversal errors: {Volatile.Read(ref this._scanErrorCount):N0}.");
+        }
+        else
+        {
+            this._logger?.LogWarning($"Scan stopped. Partial traversal errors: {Volatile.Read(ref this._scanErrorCount):N0}.");
         }
 
         return this._results!;
+    }
+
+    private void MarkQueueCompleteAfterRootEnqueueFailure()
+    {
+        Interlocked.Exchange(ref this._pendingDirectoryCount, 0);
+        Interlocked.Exchange(ref this._isCompleted, true);
+        this.EnsureQueueCompleted();
     }
 
     /// <summary>
@@ -238,6 +307,7 @@ public class FileScanner : IFileScanner, IDisposable
         lock (this._sync)
         {
             this._isScanning = false;
+            this._isFinalizing = false;
 
             this._workQueue?.Dispose();
             this._workQueue = null;
@@ -276,17 +346,59 @@ public class FileScanner : IFileScanner, IDisposable
         var localProcessedBytes = 0L;
         var localErrors = 0;
         var flushCounter = 0;
+        var workerRegistered = true;
+        var localDirectories = new Stack<string>();
 
         try
         {
-            foreach (var path in this._workQueue!.GetConsumingEnumerable(token))
+            while (true)
             {
+                if (localDirectories.Count == 0 && this.TryRetireWorker())
+                {
+                    workerRegistered = false;
+                    return;
+                }
+
+                var queue = this._workQueue;
+                if (queue == null)
+                {
+                    return;
+                }
+
+                string? path;
+                if (localDirectories.Count > 0)
+                {
+                    path = localDirectories.Pop();
+                }
+                else if (!queue.TryTake(out path, 100, token))
+                {
+                    if (queue.IsCompleted)
+                    {
+                        return;
+                    }
+
+                    continue;
+                }
+
+                if (path is null)
+                {
+                    continue;
+                }
+
                 token.ThrowIfCancellationRequested();
 
-                this.ProcessPath(path, localResults,
-                    ref localDiscoveredFiles, ref localDiscoveredBytes,
-                    ref localProcessedFiles, ref localProcessedBytes,
-                    ref localErrors);
+                try
+                {
+                    this.ProcessPath(path, token, localDirectories, localResults,
+                        ref localDiscoveredFiles, ref localDiscoveredBytes,
+                        ref localProcessedFiles, ref localProcessedBytes,
+                        ref localErrors);
+                }
+                catch (Exception ex)
+                {
+                    localErrors++;
+                    this.RecordScanError(path, ex);
+                }
 
                 flushCounter++;
                 if (flushCounter >= 500)
@@ -307,15 +419,46 @@ public class FileScanner : IFileScanner, IDisposable
         {
             // Clean exit on cancellation
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            // Swallow exceptions in worker loop to keep the scan going
+            localErrors++;
+            this.RecordScanError(this._rootPath, ex);
         }
         finally
         {
+            // If an unexpected queue failure exits this worker, release pending
+            // directory slots for any local overflow work it did not process.
+            while (localDirectories.Count > 0)
+            {
+                localDirectories.Pop();
+                this.OnDirectoryProcessed();
+            }
+
             this.FlushResults(localResults, localDiscoveredFiles, localDiscoveredBytes,
                 localProcessedFiles, localProcessedBytes, localErrors);
+
+            if (workerRegistered)
+            {
+                lock (this._sync)
+                {
+                    this._activeWorkerCount = Math.Max(0, this._activeWorkerCount - 1);
+                }
+            }
         }
+    }
+
+    private bool TryRetireWorker()
+    {
+        lock (this._sync)
+        {
+            if (this._isScanning && this._activeWorkerCount > this._targetWorkerCount)
+            {
+                this._activeWorkerCount--;
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -326,6 +469,8 @@ public class FileScanner : IFileScanner, IDisposable
     /// </summary>
     private void ProcessPath(
         string path,
+        CancellationToken token,
+        Stack<string> localDirectories,
         List<ScanResult> localResults,
         ref int localDiscoveredFiles,
         ref long localDiscoveredBytes,
@@ -333,67 +478,61 @@ public class FileScanner : IFileScanner, IDisposable
         ref long localProcessedBytes,
         ref int localErrors)
     {
-        // Peek at attributes to know if this is a directory (for pending count tracking)
-        var isDirectory = false;
         try
         {
-            isDirectory = (File.GetAttributes(path) & FileAttributes.Directory) != 0;
-        }
-        catch
-        {
-            // Can't get attributes — treat as non-directory
-        }
-
-        // Pass localResults as the file-results list so that files found
-        // inside a directory are added to the output alongside the directory.
-        var result = this.TryProcessPath(path, localResults, ref localErrors);
-        if (result == null)
-        {
-            // Path was skipped (filtered out or inaccessible).
-            // If it was a directory, decrement the pending count because
-            // this directory is now "processed" (no subdirectories enqueued).
-            if (isDirectory)
+            // The work queue contains directories only (the root and discovered
+            // subdirectories). Always decrement its pending count in finally,
+            // including when processing throws or the directory is filtered.
+            var result = this.TryProcessPath(path, localResults, ref localErrors);
+            if (result == null)
             {
-                this.OnDirectoryProcessed();
+                return;
             }
-            return;
-        }
 
-        localResults.Add(result);
-        localProcessedFiles++;
-        localProcessedBytes += result.SizeBytes;
+            localResults.Add(result);
+            localProcessedBytes += result.SizeBytes;
 
-        if (result.IsDirectory)
-        {
-            localDiscoveredBytes += result.SizeBytes;
-        }
-        else
-        {
-            localDiscoveredFiles++;
-            localDiscoveredBytes += result.SizeBytes;
-        }
+            if (result.IsDirectory)
+            {
+                // Directory processing inspects each eligible file directly;
+                // reflect those files in progress instead of reporting only
+                // directory work items (which previously left Files at 0/0).
+                localDiscoveredFiles += result.FileCount;
+                localProcessedFiles += result.FileCount;
+                localDiscoveredBytes += result.SizeBytes;
+            }
+            else
+            {
+                localDiscoveredFiles++;
+                localProcessedFiles++;
+                localDiscoveredBytes += result.SizeBytes;
+            }
 
-        // Enqueue subdirectories for further processing
-        if (result.IsDirectory)
-        {
             foreach (var subDir in result.SubdirectoryPaths)
             {
+                // Reserve the pending slot before publishing the directory to
+                // another worker; otherwise that worker may finish it first.
+                Interlocked.Increment(ref this._pendingDirectoryCount);
                 try
                 {
-                    this._workQueue!.Add(subDir);
-                    Interlocked.Increment(ref this._pendingDirectoryCount);
+                    if (!this._workQueue!.TryAdd(subDir, 0, token))
+                    {
+                        localDirectories.Push(subDir);
+                    }
                 }
                 catch (InvalidOperationException)
                 {
-                    // Queue was completed (scan is finishing) — skip remaining subdirs
+                    this.OnDirectoryProcessed();
                     break;
+                }
+                catch
+                {
+                    this.OnDirectoryProcessed();
+                    throw;
                 }
             }
         }
-
-        // This directory is now fully processed — decrement the pending count.
-        // If this was the last pending directory, CompleteAdding will be called.
-        if (isDirectory)
+        finally
         {
             this.OnDirectoryProcessed();
         }
@@ -432,22 +571,10 @@ public class FileScanner : IFileScanner, IDisposable
 
             return this.TryProcessFile(path, filterOptions, ref localErrors);
         }
-        catch (UnauthorizedAccessException)
+        catch (Exception ex)
         {
             localErrors++;
-            this._progressTracker.ReportError();
-            return null;
-        }
-        catch (IOException)
-        {
-            localErrors++;
-            this._progressTracker.ReportError();
-            return null;
-        }
-        catch (Exception)
-        {
-            localErrors++;
-            this._progressTracker.ReportError();
+            this.RecordScanError(path, ex);
             return null;
         }
     }
@@ -466,7 +593,7 @@ public class FileScanner : IFileScanner, IDisposable
         var depth = this.CalculateDepth(path);
 
         // Check depth limit — if this directory exceeds the limit, skip it entirely
-        if (filterOptions is { MaxDepth: > 0 } && depth > filterOptions.MaxDepth)
+        if (filterOptions is { MaxDepth: >= 0 } && depth > filterOptions.MaxDepth)
         {
             return null;
         }
@@ -496,7 +623,7 @@ public class FileScanner : IFileScanner, IDisposable
             foreach (var subDir in subDirs)
             {
                 var subDepth = depth + 1;
-                if (filterOptions is { MaxDepth: > 0 } && subDepth > filterOptions.MaxDepth)
+                if (filterOptions is { MaxDepth: >= 0 } && subDepth > filterOptions.MaxDepth)
                 {
                     continue;
                 }
@@ -516,18 +643,11 @@ public class FileScanner : IFileScanner, IDisposable
                 }
             }
         }
-        catch (UnauthorizedAccessException)
+        catch (Exception ex)
         {
             localErrors++;
-            // Still report the directory entry with 0 size
-        }
-        catch (IOException)
-        {
-            localErrors++;
-        }
-        catch (Exception)
-        {
-            localErrors++;
+            this.RecordScanError(path, ex);
+            // Still report the directory entry with its available metadata.
         }
 
         return result;
@@ -549,6 +669,17 @@ public class FileScanner : IFileScanner, IDisposable
 
         try
         {
+            var attributes = File.GetAttributes(path);
+            if (filterOptions.SkipHidden && (attributes & FileAttributes.Hidden) != 0)
+            {
+                return null;
+            }
+
+            if (filterOptions.SkipSystem && (attributes & FileAttributes.System) != 0)
+            {
+                return null;
+            }
+
             var fileInfo = new FileInfo(path);
 
             // Check min/max size filters
@@ -606,23 +737,31 @@ public class FileScanner : IFileScanner, IDisposable
                 SizeDisplay = SizeFormatter.Format(fileInfo.Length)
             };
         }
-        catch (UnauthorizedAccessException)
+        catch (Exception ex)
         {
             localErrors++;
-            this._progressTracker.ReportError();
+            this.RecordScanError(path, ex);
             return null;
         }
-        catch (IOException)
+    }
+
+    private void RecordScanError(string path, Exception exception)
+    {
+        var errorNumber = Interlocked.Increment(ref this._scanErrorCount);
+
+        // Access-denied and IO failures are common when traversing the Windows
+        // volume. Record a small sample plus periodic summaries, not one line per
+        // inaccessible file. Unexpected exceptions retain their full details.
+        if (errorNumber <= 10 || errorNumber % 1000 == 0)
         {
-            localErrors++;
-            this._progressTracker.ReportError();
-            return null;
-        }
-        catch (Exception)
-        {
-            localErrors++;
-            this._progressTracker.ReportError();
-            return null;
+            if (exception is UnauthorizedAccessException or IOException)
+            {
+                this._logger?.LogWarning($"Skipped '{path}' ({exception.GetType().Name}: {exception.Message}); scan errors so far: {errorNumber:N0}.");
+            }
+            else
+            {
+                this._logger?.Log(exception, preText: $"Unexpected scan failure at '{path}' (error {errorNumber:N0})");
+            }
         }
     }
 
@@ -720,9 +859,7 @@ public class FileScanner : IFileScanner, IDisposable
 
     /// <summary>
     /// Adapts the worker pool to the new target count while a scan is running.
-    /// Starts new workers if the count increased.
-    /// When the count decreased, excess workers will naturally drain the queue
-    /// and exit; no forced termination is performed to avoid data loss.
+    /// Starts workers on increases; workers retire cooperatively on decreases.
     /// </summary>
     private void AdaptWorkerPool(int newTarget)
     {
@@ -736,8 +873,8 @@ public class FileScanner : IFileScanner, IDisposable
                 this.StartWorker();
             }
         }
-        // When newTarget < currentCount: excess workers will finish their current
-        // item and exit when the queue is empty. No action needed.
+        // Decreasing the target is observed by workers in their short queue-poll
+        // loop; they retire without dropping any directories.
     }
 
     public void Dispose()

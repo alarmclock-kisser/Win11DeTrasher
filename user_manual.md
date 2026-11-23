@@ -71,7 +71,7 @@ The main window has five main sections, from top to bottom:
 | **Top Panel** | Drive selection, scan/cancel buttons, worker count, preset management |
 | **Filter Panel** | Configure which files to include/exclude in the scan |
 | **Progress Panel** | Real-time scan progress: bar, elapsed time, ETA, file counts |
-| **Results Panel** | Sortable table of scan results, search/filter, cleanup actions |
+| **Results Panel** | Sortable results table, search/filter, cleanup actions (left) and live application log (right) |
 | **System Info Panel** | (right side) Sizes of temp folders, Recycle Bin, etc. |
 
 The window is **dynamically resizable** — you can drag the edges to
@@ -189,6 +189,20 @@ Scanning...
 
 Shows the sizes of well-known space-hungry locations on your system.
 Click **Refresh System Info** to re-query all categories.
+
+### 3.6 The Application Log (right of the results)
+
+The live log records scan starts and finishes, worker-count changes, skipped
+inaccessible paths, errors, exceptions, and cancellation requests. New entries
+appear at the bottom while you are viewing the latest entries.
+
+- Click **Copy log** to copy the complete session log.
+- Double-click an entry or right-click and choose **Copy selected line(s)** to
+  copy selected entries. The context menu also offers **Copy all log entries**
+  and **Clear log**.
+- A timestamped text log is also saved under
+  `%LOCALAPPDATA%\Win11DeTrasher\Logs` (typically
+  `C:\Users\<you>\AppData\Local\Win11DeTrasher\Logs`).
 
 ## 4. Scanning a Drive
 

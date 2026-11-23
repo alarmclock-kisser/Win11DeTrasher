@@ -38,7 +38,7 @@ of concerns:
 ```
 ┌─────────────────────────────────────────────────────────┐
 │  UI Layer (WinForms)                                    │
-│  MainForm, ScanFilterForm, Controls/*                   │
+│  MainForm, ScanFilterForm, Controls/*, listBox_log       │
 │  ┌───────────────────────────────────────────────────┐  │
 │  │  Event handlers, data binding, user interaction   │  │
 │  └───────────────────────────────────────────────────┘  │
@@ -59,7 +59,7 @@ of concerns:
 │  ScanFilterPreset                                      │
 ├─────────────────────────────────────────────────────────┤
 │  Utility Layer (static helpers)                         │
-│  ElevationHelper, SizeFormatter                        │
+│  ElevationHelper, SizeFormatter, RoFM utilities          │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -112,6 +112,8 @@ Win11DeTrasher/
 │   │   ├── DuplicateGroup.cs
 │   │   ├── CleanupResult.cs
 │   │   └── ScanFilterPreset.cs
+│   ├── Shared/
+│   │   └── RoFMLogger.cs          # IRollingFileMemoryLogger + logger + included helpers
 │   └── Utils/
 │       ├── ElevationHelper.cs
 │       └── SizeFormatter.cs
@@ -245,8 +247,9 @@ The scanner uses a **producer-consumer work queue** pattern:
 1. **`BlockingCollection<string>`** as the work queue:
    - Thread-safe enqueue/dequeue.
    - `CompleteAdding()` signals workers to drain and exit.
-   - Bounded size (`WorkerCount * 4`) prevents unbounded memory
-     growth for very deep directory trees.
+   - Bounded size (`WorkerCount * 4`) limits shared-queue growth.
+     When full, a producing worker keeps overflow paths in a local
+     stack instead of blocking while it is the only consumer.
 
 2. **Batching:** Each worker accumulates results locally and flushes
    to the shared list every 500 items. This minimizes lock contention
@@ -261,14 +264,20 @@ The scanner uses a **producer-consumer work queue** pattern:
    `CompleteAdding()` cannot be called upfront — the queue would be
    completed before workers have a chance to enqueue subdirectories.
    Instead, a thread-safe counter (`Interlocked` increment/decrement)
-   tracks how many directories are "pending" (enqueued but not yet
-   fully processed). Each subdirectory enqueue increments the counter;
+    tracks how many directories are "pending" (enqueued or locally held,
+    but not yet fully processed). The counter is incremented before a
+    child becomes visible to another worker;
    each directory fully processed (all subdirs enqueued) decrements it.
    When the counter reaches zero, `CompleteAdding()` is called, and
    workers drain the remaining queue and exit. A safety-net
-   `CompleteAdding()` in the `finally` block of `AwaitCompletionAsync`
-   guarantees workers can always exit, even if an error prevents the
-   counter from reaching zero.
+    `CompleteAdding()` in the `finally` block of `AwaitCompletionAsync`
+    guarantees workers can always exit, even if an error prevents the
+    counter from reaching zero.
+
+5. **Dynamic worker finalization:** Worker tasks added during a scan are
+   included in the final wait. Once directory traversal completes (or
+   cancellation is requested), the scanner stops accepting worker-count
+   changes before collecting the final task set.
 
 ### 4.2 On-the-Fly Worker Adjustment
 
@@ -619,23 +628,18 @@ and the logic imperative.
 
 ### 12.2 Layout
 
-The main layout uses a `TableLayoutPanel` with 2 columns and
-4 rows:
+The root layout is a one-column `TableLayoutPanel` with fixed
+header/filter/progress rows and a fill-sized content row:
 
 ```
-Row 0 (60px):  Top Panel (span 2 cols)
-Row 1 (30%):   Filter Panel (col 0) | System Info Panel (col 1)
-Row 2 (80px):  Progress Panel (span 2 cols)
-Row 3 (70%):   Results Panel (span 2 cols)
+Row 0 (82px):  Drive, scan, worker and preset controls
+Row 1 (285px): Filter Panel | System Info Panel (resizable split)
+Row 2 (76px):  Progress bar, counts, elapsed/ETA and status
+Row 3 (fill):  Results Panel | Application Log (resizable split)
 ```
 
-Column 0 is 60% of the width, column 1 is 40%.
-Rows 1 and 3 use percentage sizing — they expand/contract
-with the window size.
-
-> **Note:** The Top Panel spans both columns but is placed in
-> column 0 (row 0). The System Info Panel occupies column 1, row 1
-> only. The Progress Panel and Results Panel span both columns.
+The results table and the live log are side by side; both splitters
+retain minimum panel sizes and can be adjusted by the user.
 
 ### 12.3 Custom Controls
 
@@ -663,11 +667,28 @@ The results table is bound to a `BindingSource` whose `DataSource`
 is set to the filtered/sorted `List<ScanResult>`. When the
 DataSource changes, the grid re-binds automatically.
 
-The `SortableDataGridView` performs in-place sorting on the bound
-list and re-triggers binding by resetting the DataSource.
+The `SortableDataGridView` performs in-place sorting on the list held
+by the `BindingSource`, then calls `ResetBindings` to refresh the grid.
 
 The system info grid is not data-bound — rows are added
 manually (simpler for a small, fixed set of categories).
+
+### 12.6 Application Logging
+
+`Program` creates `RollingFileMemoryLogger`, which implements
+`IRollingFileMemoryLogger`, enables its rolling-file writer, and stores
+session logs under `%LOCALAPPDATA%\Win11DeTrasher\Logs`. The logger source
+is bundled in `Shared/RoFMLogger.cs` with its helper types and enums, so it
+adds no external package dependency. `MainForm` binds `listBox_log` directly
+to `RollingFileMemoryLogger.LogEntriesBindingList` and sets the WinForms
+synchronization context so background messages update safely on the UI
+thread. The list follows new entries while the user is at the bottom and
+supports copy-selected, copy-all, and clear actions.
+
+Scan messages include the selected root, active worker target, filter values,
+completion/cancellation outcome, result counts, and sampled inaccessible-path
+errors. Unexpected exceptions are logged with stack traces; repeated
+access-denied/IO errors are sampled to keep the live log usable.
 
 ### 12.5 Drive ComboBox Items
 

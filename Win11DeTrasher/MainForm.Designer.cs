@@ -19,6 +19,7 @@ partial class MainForm
         this._savePresetButton = new System.Windows.Forms.Button();
         this._deletePresetButton = new System.Windows.Forms.Button();
         this._filterPanel = new System.Windows.Forms.SplitContainer();
+        this._contentSplit = new System.Windows.Forms.SplitContainer();
         this._includeExtensionsBox = new System.Windows.Forms.TextBox();
         this._excludeExtensionsBox = new System.Windows.Forms.TextBox();
         this._includePathsBox = new System.Windows.Forms.TextBox();
@@ -51,11 +52,20 @@ partial class MainForm
         this._exportButton = new System.Windows.Forms.Button();
         this._recycleBinButton = new System.Windows.Forms.Button();
         this._hardDeleteButton = new System.Windows.Forms.Button();
+        this._logPanel = new System.Windows.Forms.TableLayoutPanel();
+        this._logHeader = new System.Windows.Forms.TableLayoutPanel();
+        this._logTitle = new System.Windows.Forms.Label();
+        this._copyLogButton = new System.Windows.Forms.Button();
+        this._listBox_log = new System.Windows.Forms.ListBox();
 
         ((System.ComponentModel.ISupportInitialize)this._filterPanel).BeginInit();
         this._filterPanel.Panel1.SuspendLayout();
         this._filterPanel.Panel2.SuspendLayout();
         this._filterPanel.SuspendLayout();
+        ((System.ComponentModel.ISupportInitialize)this._contentSplit).BeginInit();
+        this._contentSplit.Panel1.SuspendLayout();
+        this._contentSplit.Panel2.SuspendLayout();
+        this._contentSplit.SuspendLayout();
         ((System.ComponentModel.ISupportInitialize)this._maxDepthBox).BeginInit();
         ((System.ComponentModel.ISupportInitialize)this._minSizeBox).BeginInit();
         ((System.ComponentModel.ISupportInitialize)this._maxSizeBox).BeginInit();
@@ -83,7 +93,48 @@ partial class MainForm
         this._mainTable.Controls.Add(this._topPanel, 0, 0);
         this._mainTable.Controls.Add(this._filterPanel, 0, 1);
         this._mainTable.Controls.Add(this._progressPanel, 0, 2);
-        this._mainTable.Controls.Add(this._resultsPanel, 0, 3);
+        this._mainTable.Controls.Add(this._contentSplit, 0, 3);
+
+        // Results and a live, resizable application log share the lower area.
+        this._contentSplit.Size = new System.Drawing.Size(1184, 400);
+        this._contentSplit.Dock = System.Windows.Forms.DockStyle.Fill;
+        this._contentSplit.Orientation = System.Windows.Forms.Orientation.Vertical;
+        this._contentSplit.Panel1.Padding = new System.Windows.Forms.Padding(0, 0, 4, 0);
+        this._contentSplit.Panel2.Padding = new System.Windows.Forms.Padding(4, 0, 0, 0);
+        this._contentSplit.Panel1.Controls.Add(this._resultsPanel);
+        this._contentSplit.Panel2.Controls.Add(this._logPanel);
+
+        this._logPanel.ColumnCount = 1;
+        this._logPanel.RowCount = 2;
+        this._logPanel.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 100F));
+        this._logPanel.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Absolute, 36F));
+        this._logPanel.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 100F));
+        this._logPanel.Dock = System.Windows.Forms.DockStyle.Fill;
+        this._logPanel.Controls.Add(this._logHeader, 0, 0);
+        this._logPanel.Controls.Add(this._listBox_log, 0, 1);
+        this._logHeader.ColumnCount = 2;
+        this._logHeader.RowCount = 1;
+        this._logHeader.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 100F));
+        this._logHeader.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.AutoSize));
+        this._logHeader.Dock = System.Windows.Forms.DockStyle.Fill;
+        this._logHeader.Controls.Add(this._logTitle, 0, 0);
+        this._logHeader.Controls.Add(this._copyLogButton, 1, 0);
+        this._logTitle.Text = "Application log";
+        this._logTitle.AutoSize = true;
+        this._logTitle.Anchor = System.Windows.Forms.AnchorStyles.Left;
+        this._copyLogButton.Text = "Copy log";
+        this._copyLogButton.AutoSize = true;
+        this._copyLogButton.UseVisualStyleBackColor = true;
+        this._copyLogButton.Click += new System.EventHandler(this.OnCopyLogClick);
+        this._listBox_log.Dock = System.Windows.Forms.DockStyle.Fill;
+        this._listBox_log.FormattingEnabled = true;
+        this._listBox_log.HorizontalScrollbar = true;
+        this._listBox_log.IntegralHeight = false;
+        this._listBox_log.SelectionMode = System.Windows.Forms.SelectionMode.MultiExtended;
+        this._listBox_log.TabStop = false;
+        this._listBox_log.Font = new System.Drawing.Font("Consolas", 8.25F);
+        this._listBox_log.MouseUp += new System.Windows.Forms.MouseEventHandler(this.OnLogListMouseUp);
+        this._listBox_log.DoubleClick += new System.EventHandler(this.OnLogListDoubleClick);
 
         // Drive/scan/worker row and preset row.
         this._topPanel.ColumnCount = 5;
@@ -161,7 +212,7 @@ partial class MainForm
         ConfigureNumber(this._minSizeBox, 0, long.MaxValue, 0, 125);
         sizeFlow.Controls.Add(this._minSizeBox);
         sizeFlow.Controls.Add(new System.Windows.Forms.Label { Text = "Max bytes:", AutoSize = true, Margin = new System.Windows.Forms.Padding(10, 5, 4, 0) });
-        ConfigureNumber(this._maxSizeBox, 0, long.MaxValue, long.MaxValue, 145);
+        ConfigureNumber(this._maxSizeBox, 0, long.MaxValue, long.MaxValue, 190);
         sizeFlow.Controls.Add(this._maxSizeBox);
         filterTable.Controls.Add(sizeFlow, 0, 4);
         filterTable.SetColumnSpan(sizeFlow, 2);
@@ -301,6 +352,10 @@ partial class MainForm
         this._filterPanel.Panel1.ResumeLayout(false);
         this._filterPanel.Panel2.ResumeLayout(false);
         this._filterPanel.ResumeLayout(false);
+        ((System.ComponentModel.ISupportInitialize)this._contentSplit).EndInit();
+        this._contentSplit.Panel1.ResumeLayout(false);
+        this._contentSplit.Panel2.ResumeLayout(false);
+        this._contentSplit.ResumeLayout(false);
         ((System.ComponentModel.ISupportInitialize)this._maxDepthBox).EndInit();
         ((System.ComponentModel.ISupportInitialize)this._minSizeBox).EndInit();
         ((System.ComponentModel.ISupportInitialize)this._maxSizeBox).EndInit();
@@ -423,6 +478,7 @@ partial class MainForm
     private System.Windows.Forms.Button _savePresetButton;
     private System.Windows.Forms.Button _deletePresetButton;
     private System.Windows.Forms.SplitContainer _filterPanel;
+    private System.Windows.Forms.SplitContainer _contentSplit;
     private System.Windows.Forms.TextBox _includeExtensionsBox;
     private System.Windows.Forms.TextBox _excludeExtensionsBox;
     private System.Windows.Forms.TextBox _includePathsBox;
@@ -455,5 +511,10 @@ partial class MainForm
     private System.Windows.Forms.Button _exportButton;
     private System.Windows.Forms.Button _recycleBinButton;
     private System.Windows.Forms.Button _hardDeleteButton;
+    private System.Windows.Forms.TableLayoutPanel _logPanel;
+    private System.Windows.Forms.TableLayoutPanel _logHeader;
+    private System.Windows.Forms.Label _logTitle;
+    private System.Windows.Forms.Button _copyLogButton;
+    private System.Windows.Forms.ListBox _listBox_log;
     #nullable restore
 }

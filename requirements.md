@@ -65,6 +65,10 @@ source repositories, Windows temp files, and other space hogs.
 - **Cleanup:** Send selected items to the Recycle Bin (reversible)
   or hard delete (permanent, with confirmation).
 - **Report export:** Export scan results to CSV, JSON, HTML, or TXT.
+- **Diagnostics log:** Live, timestamped log with scan start/completion,
+  worker-count changes, skipped-path warnings, exceptions, cleanup errors,
+  and cancellation requests. Uses `IRollingFileMemoryLogger` and saves a
+  session file under `%LOCALAPPDATA%\Win11DeTrasher\Logs`.
 
 ## 4. User Interface
 
@@ -75,8 +79,8 @@ source repositories, Windows temp files, and other space hogs.
 - **Layout:** Responsive, dynamically resizable window.
   Uses a `TableLayoutPanel` for the main layout.
 - **Window properties:**
-  - Minimum size: 800×600
-  - Default size: 1100×800
+  - Minimum size: 1050×650
+  - Default client size: 1200×680
   - Maximizable: Yes
   - DPI awareness: PerMonitorV2 (via `app.manifest`)
   - Start position: CenterScreen
@@ -103,9 +107,9 @@ source repositories, Windows temp files, and other space hogs.
 | [ProgressBar]                                           |
 | [Elapsed] [ETA] [Files] [Errors] [Status]               |
 +----------------------------------------------------------+
-| Results Panel (70%)                                    |
+| Results and Log Panel (resizable side-by-side split)     |
 | [Search:] [TextBox] [Min size:] [NumericUpDown]         |
-| [SortableDataGridView]                                  |
+| [SortableDataGridView]             | [listBox_log]       |
 | [Export Report...] [Send to Recycle Bin] [Hard Delete]  |
 +----------------------------------------------------------+
 ```
