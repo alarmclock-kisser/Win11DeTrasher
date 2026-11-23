@@ -115,7 +115,7 @@ public class FileScanner : IFileScanner, IDisposable
             }
 
             // Set scan context
-            this._rootPath = rootPath;
+            this._rootPath = Path.GetFullPath(rootPath);
             this._filterOptions = filterOptions;
 
             // Initialize the work queue
@@ -145,7 +145,7 @@ public class FileScanner : IFileScanner, IDisposable
         // and make the scan appear complete before traversal has started.
         try
         {
-            this._workQueue!.Add(rootPath, this._cts!.Token);
+            this._workQueue!.Add(this._rootPath, this._cts!.Token);
         }
         catch (OperationCanceledException)
         {
@@ -153,7 +153,7 @@ public class FileScanner : IFileScanner, IDisposable
         }
         catch (Exception ex)
         {
-            this._logger?.Log(ex, preText: $"Could not enqueue scan root '{rootPath}'");
+            this._logger?.Log(ex, preText: $"Could not enqueue scan root '{this._rootPath}'");
             this._progressTracker.ReportError();
             this.MarkQueueCompleteAfterRootEnqueueFailure();
         }
@@ -552,14 +552,25 @@ public class FileScanner : IFileScanner, IDisposable
 
             // Check for hidden/system skip options
             var filterOptions = this._filterOptions;
-            if (filterOptions is { SkipHidden: true } && (attrs & FileAttributes.Hidden) != 0)
+            var isSelectedRoot = this.IsSelectedRoot(path);
+            if (filterOptions is { SkipHidden: true }
+                && (attrs & FileAttributes.Hidden) != 0
+                && !isSelectedRoot)
             {
                 return null;
             }
 
-            if (filterOptions is { SkipSystem: true } && (attrs & FileAttributes.System) != 0)
+            if (filterOptions is { SkipSystem: true }
+                && (attrs & FileAttributes.System) != 0
+                && !isSelectedRoot)
             {
                 return null;
+            }
+
+            if (isSelectedRoot && (attrs & (FileAttributes.Hidden | FileAttributes.System)) != 0)
+            {
+                this._logger?.LogInfo(
+                    $"The selected scan root '{path}' is marked Hidden/System; scanning the explicitly selected root anyway.");
             }
 
             var isDirectory = (attrs & FileAttributes.Directory) != 0;
@@ -577,6 +588,14 @@ public class FileScanner : IFileScanner, IDisposable
             this.RecordScanError(path, ex);
             return null;
         }
+    }
+
+    private bool IsSelectedRoot(string path)
+    {
+        return string.Equals(
+            Path.TrimEndingDirectorySeparator(path),
+            Path.TrimEndingDirectorySeparator(this._rootPath),
+            StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

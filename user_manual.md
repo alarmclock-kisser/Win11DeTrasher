@@ -316,6 +316,11 @@ This excludes build output and git metadata from the scan.
   with the Windows "System" attribute. Enable this if you want to
   avoid system-critical files.
 
+The drive or folder you explicitly selected is always scanned, even if
+Windows marks that root as hidden/system (drive roots can carry those
+attributes). These options filter entries beneath the selected root.
+Also, a blank **Include extensions** field means all extensions are included.
+
 ### 5.6 Combining Filters
 
 All filters are applied **simultaneously** (logical AND). A file is

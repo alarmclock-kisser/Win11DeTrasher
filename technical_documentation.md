@@ -280,6 +280,10 @@ The scanner uses a **producer-consumer work queue** pattern:
    cancellation is requested), the scanner stops accepting worker-count
    changes before collecting the final task set.
 
+6. **Selected-root attribute handling:** The explicitly selected root is
+   traversed even when Windows marks it Hidden or System (common for volume
+   roots). Hidden/System filters apply to discovered entries below that root.
+
 ### 4.2 On-the-Fly Worker Adjustment
 
 The `WorkerCount` property can be changed during a running scan:

@@ -243,6 +243,28 @@ public sealed class FileScannerTests : TestBase
     }
 
     [TestMethod]
+    public async Task ScanAsync_SelectedRootWithHiddenAndSystemAttributes_ShouldStillBeTraversed()
+    {
+        var originalAttributes = File.GetAttributes(this._root);
+        try
+        {
+            File.SetAttributes(this._root, originalAttributes | FileAttributes.Hidden | FileAttributes.System);
+
+            var results = await this._scanner.ScanAsync(
+                this._root,
+                new ScanFilterOptions { SkipHidden = true, SkipSystem = true },
+                CancellationToken.None);
+
+            results.Count(result => !result.IsDirectory).ShouldBe(5);
+            results.ShouldContain(result => result.IsDirectory && result.FullPath == this._root);
+        }
+        finally
+        {
+            File.SetAttributes(this._root, originalAttributes);
+        }
+    }
+
+    [TestMethod]
     public async Task ScanAsync_Cancellation_ShouldStopScan()
     {
         var cts = new CancellationTokenSource();
