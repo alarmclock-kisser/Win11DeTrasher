@@ -1,0 +1,51 @@
+# User-specific files
+*.rsuser
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Build results
+[Dd]ebug/
+[Rr]elease/
+bld/
+[Bb]in/
+[Oo]bj/
+[Oo]ut/
+[Ll]og/
+[Ll]ogs/
+
+# Visual Studio cache
+.vs/
+
+# MSTest test Results
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+
+# .NET Core
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# NuGet Packages
+*.nupkg
+
+# Visual Studio profiler
+*.psess
+*.vsp
+*.vspx
+
+# MSBuild Binary Log
+*.binlog
+
+# Temporary files
+*.tmp
+*.temp
+*~
+~$*
+
+# Test run reports
+TestRunReports/
+
+# User-specific config (AppData-based, but ignore local copies)
+*.test_backup
