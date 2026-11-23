@@ -103,7 +103,9 @@ public class SortableDataGridView : DataGridView
 
     private void ApplySortToDataSource(string? columnName, int direction)
     {
-        var list = this.DataSource as List<ScanResult>;
+        var bindingSource = this.DataSource as BindingSource;
+        var list = this.DataSource as List<ScanResult>
+            ?? bindingSource?.DataSource as List<ScanResult>;
         if (list == null)
         {
             return;
@@ -143,10 +145,17 @@ public class SortableDataGridView : DataGridView
             }
         }
 
-        // Re-bind to trigger grid refresh
-        var currentSource = this.DataSource;
-        this.DataSource = null;
-        this.DataSource = currentSource;
+        // Refresh the active list binding without detaching the grid.
+        if (bindingSource != null)
+        {
+            bindingSource.ResetBindings(false);
+        }
+        else
+        {
+            var currentSource = this.DataSource;
+            this.DataSource = null;
+            this.DataSource = currentSource;
+        }
     }
 
     private static int CompareByProperty(ScanResult a, ScanResult b, System.Reflection.PropertyInfo property)

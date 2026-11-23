@@ -13,6 +13,7 @@ public class WorkerControl : UserControl
     private readonly TrackBar _trackBar = new();
     private readonly Label _label = new();
     private readonly Label _valueLabel = new();
+    private readonly TableLayoutPanel _layout = new();
     private int _maxWorkers;
     private int _workerCount;
 
@@ -67,26 +68,38 @@ public class WorkerControl : UserControl
 
         this._valueLabel.Text = string.Empty;
         this._valueLabel.AutoSize = true;
-        this._valueLabel.ForeColor = System.Drawing.Color.Gray;
 
         this._numericUpDown.Minimum = 1;
         this._numericUpDown.Maximum = this._maxWorkers;
         this._numericUpDown.Value = this._workerCount;
-        this._numericUpDown.Width = 60;
+        this._numericUpDown.Dock = DockStyle.Fill;
+        this._numericUpDown.Margin = new Padding(3, 5, 6, 3);
         this._numericUpDown.ValueChanged += this.OnValueChange;
 
         this._trackBar.Minimum = 1;
         this._trackBar.Maximum = this._maxWorkers;
         this._trackBar.Value = this._workerCount;
-        this._trackBar.Width = 150;
+        this._trackBar.Dock = DockStyle.Fill;
+        this._trackBar.Margin = new Padding(3, 0, 6, 0);
         this._trackBar.TickFrequency = 1;
         this._trackBar.Scroll += this.OnTrackBarScroll;
 
-        this.Controls.Add(this._label);
-        this.Controls.Add(this._numericUpDown);
-        this.Controls.Add(this._trackBar);
-        this.Controls.Add(this._valueLabel);
+        this._layout.ColumnCount = 4;
+        this._layout.RowCount = 1;
+        this._layout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        this._layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 72F));
+        this._layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+        this._layout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        this._layout.Dock = DockStyle.Fill;
+        this._layout.Controls.Add(this._label, 0, 0);
+        this._layout.Controls.Add(this._numericUpDown, 1, 0);
+        this._layout.Controls.Add(this._trackBar, 2, 0);
+        this._layout.Controls.Add(this._valueLabel, 3, 0);
+        this._label.Anchor = AnchorStyles.Left;
+        this._valueLabel.Anchor = AnchorStyles.Left;
+        this.Controls.Add(this._layout);
 
+        this.MinimumSize = new System.Drawing.Size(280, 36);
         this.Height = 40;
         this.UpdateValueLabel();
     }

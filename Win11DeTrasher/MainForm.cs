@@ -59,6 +59,7 @@ public partial class MainForm : Form
         this.InitializeComponent();
 
         this.Load += this.OnFormLoad;
+        this.Shown += (_, _) => this.ConfigureFilterSplitter();
         this.FormClosing += this.OnFormClosing;
         this.Disposed += (_, _) => this.OnFormDisposed();
 
@@ -66,11 +67,55 @@ public partial class MainForm : Form
         this._progressTracker.ProgressUpdated += this.OnProgressUpdated;
     }
 
+    private void ConfigureFilterSplitter()
+    {
+        const int leftMinimum = 440;
+        const int rightMinimum = 330;
+        var maximumLeftWidth = this._filterPanel.ClientSize.Width
+            - this._filterPanel.SplitterWidth
+            - rightMinimum;
+        if (maximumLeftWidth >= leftMinimum)
+        {
+            this._filterPanel.SplitterDistance = Math.Clamp(
+                (int)(this._filterPanel.ClientSize.Width * 0.56),
+                leftMinimum,
+                maximumLeftWidth);
+            this._filterPanel.Panel1MinSize = leftMinimum;
+            this._filterPanel.Panel2MinSize = rightMinimum;
+        }
+    }
+
     private async void OnFormLoad(object? sender, EventArgs e)
     {
-        await this.PopulateDrivesAsync();
-        await this.PopulateSystemInfoAsync();
-        this.PopulatePresets();
+        try
+        {
+            await this.PopulateDrivesAsync();
+        }
+        catch (Exception ex)
+        {
+            this._statusLabel.Text = $"Could not load drives: {ex.Message}";
+        }
+
+        try
+        {
+            this.PopulatePresets();
+        }
+        catch (Exception ex)
+        {
+            this._statusLabel.Text = $"Could not load saved presets: {ex.Message}";
+        }
+
+        try
+        {
+            this._statusLabel.Text = "Loading system information…";
+            await this.PopulateSystemInfoAsync();
+            this._statusLabel.Text = "Ready. Select a drive or folder, then start a scan.";
+        }
+        catch (Exception ex)
+        {
+            // A system-information failure must not prevent scanning or close the form.
+            this._statusLabel.Text = $"System information unavailable: {ex.Message}";
+        }
     }
 
     private async Task PopulateDrivesAsync()
@@ -236,7 +281,6 @@ public partial class MainForm : Form
         this._statusLabel.Text = "Scanning...";
         this._progressBar.Value = 0;
         this._resultsBindingSource.DataSource = null;
-        this._resultsDataGridView.Rows.Clear();
 
         try
         {
@@ -446,6 +490,18 @@ public partial class MainForm : Form
         }
     }
 
+    private void OnResultsDataGridViewCellFormatting(object? sender, DataGridViewCellFormattingEventArgs e)
+    {
+        if (e.RowIndex >= 0
+            && e.ColumnIndex >= 0
+            && this._resultsDataGridView.Columns[e.ColumnIndex].Name == "SizeBytes"
+            && e.Value is long sizeBytes)
+        {
+            e.Value = SizeFormatter.Format(sizeBytes);
+            e.FormattingApplied = true;
+        }
+    }
+
     // --- System info ---
 
     private async void OnRefreshSystemInfoClick(object? sender, EventArgs e)
@@ -456,6 +512,11 @@ public partial class MainForm : Form
         try
         {
             await this.PopulateSystemInfoAsync();
+            this._statusLabel.Text = "System information refreshed.";
+        }
+        catch (Exception ex)
+        {
+            this._statusLabel.Text = $"System information unavailable: {ex.Message}";
         }
         finally
         {
@@ -466,6 +527,14 @@ public partial class MainForm : Form
     private async Task PopulateSystemInfoAsync()
     {
         var entries = await this._systemInfoService.GetSystemInfoAsync(CancellationToken.None);
+
+        if (this._systemInfoGrid.Columns.Count == 0)
+        {
+            this._systemInfoGrid.Columns.Add("Category", "Category");
+            this._systemInfoGrid.Columns.Add("Path", "Path");
+            this._systemInfoGrid.Columns.Add("Size", "Size");
+            this._systemInfoGrid.Columns.Add("Description", "Description");
+        }
 
         this._systemInfoGrid.Rows.Clear();
         foreach (var entry in entries)
