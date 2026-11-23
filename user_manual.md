@@ -200,9 +200,10 @@ appear at the bottom while you are viewing the latest entries.
 - Double-click an entry or right-click and choose **Copy selected line(s)** to
   copy selected entries. The context menu also offers **Copy all log entries**
   and **Clear log**.
-- A timestamped text log is also saved under
-  `%LOCALAPPDATA%\Win11DeTrasher\Logs` (typically
-  `C:\Users\<you>\AppData\Local\Win11DeTrasher\Logs`).
+- A timestamped text log is saved in the configured `LoggerSettings.LogDirectory`
+  from `appsettings.json`. By default this is a `Logs` folder beside the EXE.
+  Relative paths are resolved beside the application; if that location is not
+  writable, the app falls back to `%LOCALAPPDATA%\Win11DeTrasher\Logs`.
 
 ## 4. Scanning a Drive
 

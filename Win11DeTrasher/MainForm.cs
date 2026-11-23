@@ -67,6 +67,7 @@ public partial class MainForm : Form
         this._logger.SetUiContext(SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext());
         this._listBox_log.DataSource = this._rollingLogger.LogEntriesBindingList;
         this._rollingLogger.LogEntriesBindingList.ListChanged += this.OnLogEntriesChanged;
+        this.InitializeLogContextMenu();
         this._logger.LogInfo($"Win11DeTrasher started. Log file: {this._logger.LogFilePath ?? "memory only"}.");
 
         this.Load += this.OnFormLoad;
@@ -902,22 +903,9 @@ public partial class MainForm : Form
         this.CopyLogEntries(selectedOnly: true);
     }
 
-    private void OnLogListMouseUp(object? sender, MouseEventArgs e)
+    private void InitializeLogContextMenu()
     {
-        if (e.Button != MouseButtons.Right || this._listBox_log.Items.Count == 0)
-        {
-            return;
-        }
-
-        var index = this._listBox_log.IndexFromPoint(e.Location);
-        if (index >= 0 && !this._listBox_log.GetSelected(index))
-        {
-            this._listBox_log.SelectedIndices.Clear();
-            this._listBox_log.SetSelected(index, true);
-        }
-
         var menu = new ContextMenuStrip();
-        menu.Closed += (_, _) => menu.Dispose();
         var copySelected = new ToolStripMenuItem("Copy selected line(s)")
         {
             Enabled = this._listBox_log.SelectedItems.Count > 0
@@ -935,7 +923,23 @@ public partial class MainForm : Form
             this._logger.LogInfo("Log cleared by user.");
         };
         menu.Items.Add(clear);
-        menu.Show(this._listBox_log, e.Location);
+
+        menu.Opening += (_, _) =>
+        {
+            var point = this._listBox_log.PointToClient(Cursor.Position);
+            var index = this._listBox_log.IndexFromPoint(point);
+            if (index >= 0 && !this._listBox_log.GetSelected(index))
+            {
+                this._listBox_log.SelectedIndices.Clear();
+                this._listBox_log.SetSelected(index, true);
+            }
+
+            copySelected.Enabled = this._listBox_log.SelectedItems.Count > 0;
+            copyAll.Enabled = this._listBox_log.Items.Count > 0;
+            clear.Enabled = this._listBox_log.Items.Count > 0;
+        };
+
+        this._listBox_log.ContextMenuStrip = menu;
     }
 
     private void CopyLogEntries(bool selectedOnly)

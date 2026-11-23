@@ -48,16 +48,20 @@ jobs:
         run: |
           $tag = "v1.0.$env:GITHUB_RUN_NUMBER"
           $executable = "artifacts/publish/Win11DeTrasher.exe"
+          $configuration = "artifacts/publish/appsettings.json"
 
           if (-not (Test-Path $executable)) {
             throw "Published executable not found: $executable"
           }
+          if (-not (Test-Path $configuration)) {
+            throw "Published logger configuration not found: $configuration"
+          }
 
           gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
           if ($LASTEXITCODE -eq 0) {
-            gh release upload $tag $executable --repo $env:GITHUB_REPOSITORY --clobber
+            gh release upload $tag $executable $configuration --repo $env:GITHUB_REPOSITORY --clobber
           }
           else {
-            gh release create $tag $executable --repo $env:GITHUB_REPOSITORY `
+            gh release create $tag $executable $configuration --repo $env:GITHUB_REPOSITORY `
               --title "Win11DeTrasher $tag" --generate-notes
           }

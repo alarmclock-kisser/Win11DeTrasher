@@ -133,7 +133,6 @@ partial class MainForm
         this._listBox_log.SelectionMode = System.Windows.Forms.SelectionMode.MultiExtended;
         this._listBox_log.TabStop = false;
         this._listBox_log.Font = new System.Drawing.Font("Consolas", 8.25F);
-        this._listBox_log.MouseUp += new System.Windows.Forms.MouseEventHandler(this.OnLogListMouseUp);
         this._listBox_log.DoubleClick += new System.EventHandler(this.OnLogListDoubleClick);
 
         // Drive/scan/worker row and preset row.

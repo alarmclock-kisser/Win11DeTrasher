@@ -67,8 +67,9 @@ source repositories, Windows temp files, and other space hogs.
 - **Report export:** Export scan results to CSV, JSON, HTML, or TXT.
 - **Diagnostics log:** Live, timestamped log with scan start/completion,
   worker-count changes, skipped-path warnings, exceptions, cleanup errors,
-  and cancellation requests. Uses `IRollingFileMemoryLogger` and saves a
-  session file under `%LOCALAPPDATA%\Win11DeTrasher\Logs`.
+  and cancellation requests. Uses `IRollingFileMemoryLogger`; `LoggerSettings`
+  in `appsettings.json` controls file path/retention. Relative log paths are
+  resolved beside the executable, with a `%LOCALAPPDATA%` fallback if needed.
 
 ## 4. User Interface
 

@@ -17,4 +17,12 @@
     <DebugType Condition="'$(Configuration)' == 'Release'">none</DebugType>
   </PropertyGroup>
 
+  <ItemGroup>
+    <None Update="appsettings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </None>
+    <EmbeddedResource Include="appsettings.json" LogicalName="Win11DeTrasher.appsettings.json" />
+  </ItemGroup>
+
 </Project>

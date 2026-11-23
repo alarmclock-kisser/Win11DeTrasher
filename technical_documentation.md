@@ -87,6 +87,7 @@ Win11DeTrasher/
 ├── Win11DeTrasher/              # Main application project
 │   ├── Win11DeTrasher.csproj    # net10.0-windows, win-x64, WinExe
 │   ├── app.manifest             # asInvoker, PerMonitorV2 DPI
+│   ├── appsettings.json         # External RoFML logger configuration
 │   ├── Program.cs               # Entry point, DI wiring
 │   ├── MainForm.cs              # Main form event handlers
 │   ├── MainForm.Designer.cs     # UI layout (Designer)
@@ -675,9 +676,12 @@ manually (simpler for a small, fixed set of categories).
 
 ### 12.6 Application Logging
 
-`Program` creates `RollingFileMemoryLogger`, which implements
-`IRollingFileMemoryLogger`, enables its rolling-file writer, and stores
-session logs under `%LOCALAPPDATA%\Win11DeTrasher\Logs`. The logger source
+`Program` loads the `LoggerSettings` section from `appsettings.json` using
+`System.Text.Json`, creates `RollingFileMemoryLogger`, which implements
+`IRollingFileMemoryLogger`, and starts its rolling-file writer. Relative
+`LogDirectory` values are resolved beside the executable; if the directory
+cannot be created, the logger falls back to `%LOCALAPPDATA%\Win11DeTrasher\Logs`.
+The logger source
 is bundled in `Shared/RoFMLogger.cs` with its helper types and enums, so it
 adds no external package dependency. `MainForm` binds `listBox_log` directly
 to `RollingFileMemoryLogger.LogEntriesBindingList` and sets the WinForms
